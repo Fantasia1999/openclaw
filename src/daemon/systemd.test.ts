@@ -138,6 +138,27 @@ describe("isSystemdServiceEnabled", () => {
     const result = await isSystemdServiceEnabled({ env: {} });
     expect(result).toBe(false);
   });
+
+  it("returns false when D-Bus session bus is unavailable (no machine user fallback)", async () => {
+    const { isSystemdServiceEnabled } = await import("./systemd.js");
+    // Both direct --user and machine scope fail with the same D-Bus error,
+    // simulating a container with no $DBUS_SESSION_BUS_ADDRESS configured.
+    // The Error message and stderr carry the same D-Bus text; the function
+    // checks the stderr/stdout detail, not the Error message itself.
+    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
+      const dbusMsg =
+        "Failed to connect to user scope bus via local transport: $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined";
+      const err = new Error(dbusMsg) as Error & {
+        stderr?: string;
+        code?: number;
+      };
+      err.stderr = dbusMsg;
+      err.code = 1;
+      cb(err, "", err.stderr);
+    });
+    const result = await isSystemdServiceEnabled({ env: {} });
+    expect(result).toBe(false);
+  });
 });
 
 describe("systemd runtime parsing", () => {

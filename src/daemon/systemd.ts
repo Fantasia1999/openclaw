@@ -159,8 +159,22 @@ function isSystemctlMissing(detail: string): boolean {
     normalized.includes("not found") ||
     normalized.includes("no such file or directory") ||
     normalized.includes("spawn systemctl enoent") ||
-    normalized.includes("spawn systemctl eacces") ||
-    normalized.includes("failed to connect") ||
+    normalized.includes("spawn systemctl eacces")
+  );
+}
+
+// Detects D-Bus session bus connection failures (e.g. in containers without
+// $DBUS_SESSION_BUS_ADDRESS / $XDG_RUNTIME_DIR). Kept separate from
+// isSystemctlMissing so callers can surface the specific D-Bus error rather
+// than the generic "systemctl not available" message.
+function isDbusConnectionError(detail: string): boolean {
+  if (!detail) {
+    return false;
+  }
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("failed to connect to bus") ||
+    normalized.includes("failed to connect to user scope bus") ||
     normalized.includes("dbus_session_bus_address")
   );
 }
@@ -432,7 +446,11 @@ export async function isSystemdServiceEnabled(args: GatewayServiceEnvArgs): Prom
     return true;
   }
   const detail = readSystemctlDetail(res);
-  if (isSystemctlMissing(detail) || isSystemdUnitNotEnabled(detail)) {
+  if (
+    isSystemctlMissing(detail) ||
+    isDbusConnectionError(detail) ||
+    isSystemdUnitNotEnabled(detail)
+  ) {
     return false;
   }
   throw new Error(`systemctl is-enabled unavailable: ${detail || "unknown error"}`.trim());
@@ -491,7 +509,11 @@ async function isSystemctlAvailable(env: GatewayServiceEnv): Promise<boolean> {
   if (res.code === 0) {
     return true;
   }
-  return !isSystemctlMissing(readSystemctlDetail(res));
+  const detail = readSystemctlDetail(res);
+  if (isSystemctlMissing(detail) || isDbusConnectionError(detail)) {
+    return false;
+  }
+  return true;
 }
 
 export async function findLegacySystemdUnits(env: GatewayServiceEnv): Promise<LegacySystemdUnit[]> {
